@@ -53,15 +53,21 @@ deploy-k8s: ## Deploy Kubernetes resources
 	@echo "Done!"
 
 .PHONY: install-monitoring
-install-monitoring: ## Install monitoring stack
+install-monitoring: ## Install monitoring stack (Prometheus + Grafana)
 	@echo "Installing Prometheus and Grafana..."
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo update
 	helm install prometheus prometheus-community/kube-prometheus-stack \
-		-f k8s/monitoring/prometheus-values.yaml \
-		-n monitoring \
-		--create-namespace
-	@echo "Done!"
+		--namespace monitoring \
+		--create-namespace \
+		--set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+		--set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
+	@echo "✅ Done! Access Grafana:"
+	@echo "   Get password: kubectl get secret -n monitoring prometheus-grafana -o jsonpath=\"{.data.admin-password}\" | base64 --decode"
+	@echo "   Port forward: kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80"
+	@echo "   Open: http://localhost:3000 (admin / <password>)"
+	@echo ""
+	@echo "📖 Full guide: docs/LOCAL_MONITORING.md"
 
 .PHONY: install-logging
 install-logging: ## Install logging stack
@@ -120,9 +126,21 @@ clean: ## Clean up local resources
 	@echo "Done!"
 
 .PHONY: port-forward-grafana
-port-forward-grafana: ## Port forward Grafana
-	@echo "Forwarding Grafana on http://localhost:3000"
+port-forward-grafana: ## Port forward Grafana (http://localhost:3000)
+	@echo "🎨 Opening Grafana on http://localhost:3000"
+	@echo "Username: admin"
+	@echo "Password: $$(kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" 2>/dev/null | base64 --decode || echo 'Run: kubectl get secret -n monitoring prometheus-grafana -o jsonpath=\"{.data.admin-password}\" | base64 --decode')"
 	kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+
+.PHONY: port-forward-prometheus
+port-forward-prometheus: ## Port forward Prometheus (http://localhost:9090)
+	@echo "🔥 Opening Prometheus on http://localhost:9090"
+	kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+
+.PHONY: port-forward-alertmanager
+port-forward-alertmanager: ## Port forward AlertManager (http://localhost:9093)
+	@echo "🚨 Opening AlertManager on http://localhost:9093"
+	kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093
 
 .PHONY: port-forward-kibana
 port-forward-kibana: ## Port forward Kibana
@@ -140,3 +158,26 @@ scale-up: ## Scale up all services
 .PHONY: scale-down
 scale-down: ## Scale down all services
 	kubectl scale deployment --replicas=2 --all -n microservices
+
+.PHONY: metrics
+metrics: ## Show current metrics from services
+	@echo "=== Service Metrics ==="
+	@echo "Getting metrics from user-service..."
+	@kubectl port-forward -n microservices svc/user-service 5000:5000 > /dev/null 2>&1 & \
+	sleep 2 && \
+	curl -s http://localhost:5000/metrics | grep -E "(flask_|http_)" | head -20 && \
+	pkill -f "port-forward.*user-service" || true
+
+.PHONY: monitoring-status
+monitoring-status: ## Check monitoring stack status
+	@echo "=== Monitoring Stack Status ==="
+	@echo ""
+	@echo "Monitoring Pods:"
+	@kubectl get pods -n monitoring 2>/dev/null || echo "Monitoring not installed. Run: make install-monitoring"
+	@echo ""
+	@echo "Service Monitors:"
+	@kubectl get servicemonitors -A 2>/dev/null || echo "No ServiceMonitors found"
+	@echo ""
+	@echo "Prometheus Targets:"
+	@echo "Check: http://localhost:9090/targets (run 'make port-forward-prometheus' first)"
+

@@ -6,6 +6,17 @@
 ![Cloud](https://img.shields.io/badge/Cloud-AWS-orange)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28-blue)
 ![Python](https://img.shields.io/badge/Python-3.11-green)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-brightgreen)
+![Docker](https://img.shields.io/badge/Docker-Automated-blue)
+
+---
+
+## 🎯 Quick Links
+
+- 📖 **[Быстрый старт (5 минут)](QUICKSTART.md)** - Шпаргалка для разработки
+- 🚀 **[Первый запуск](docs/FIRST_RUN.md)** - Пошаговая инструкция настройки
+- 🔄 **[CI/CD Workflow](docs/CICD_WORKFLOW.md)** - Диаграммы и описание процесса
+- 📊 **[Локальный мониторинг](docs/LOCAL_MONITORING.md)** - Prometheus + Grafana
 
 ---
 
@@ -15,6 +26,7 @@
 - [Технологический стек](#-технологический-стек)
 - [Структура проекта](#-структура-проекта)
 - [Быстрый старт](#-быстрый-старт)
+- [CI/CD Workflow](#-cicd-workflow)
 - [Функциональность](#-функциональность)
 - [Документация](#-документация)
 - [Команда и поддержка](#-команда-и-поддержка)
@@ -213,6 +225,270 @@ curl http://localhost:5000/health
 curl http://localhost:5000/ready
 ```
 
+### 📊 Локальный доступ к мониторингу
+
+#### Установка Prometheus + Grafana (опционально)
+
+```bash
+# 1. Добавить Helm репозиторий
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# 2. Установить Prometheus Stack (включает Grafana, AlertManager)
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+
+# Подождать пока все поды запустятся (2-3 минуты)
+kubectl get pods -n monitoring -w
+```
+
+#### Доступ к Grafana
+
+```bash
+# Получить пароль админа
+kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+# Port forward для доступа
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+
+# Открыть в браузере: http://localhost:3000
+# Логин: admin
+# Пароль: (из команды выше)
+```
+
+**Готовые дашборды в Grafana:**
+- 🎯 **Kubernetes / Compute Resources / Namespace (Pods)** - Использование CPU/Memory
+- 📈 **Kubernetes / Networking / Namespace (Pods)** - Сетевой трафик
+- 🔍 **Node Exporter / Nodes** - Метрики нод
+
+#### Доступ к Prometheus UI
+
+```bash
+# Port forward
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+
+# Открыть: http://localhost:9090
+```
+
+**Полезные PromQL запросы:**
+
+```promql
+# CPU usage по подам
+rate(container_cpu_usage_seconds_total{namespace="microservices"}[5m])
+
+# Memory usage
+container_memory_working_set_bytes{namespace="microservices"}
+
+# HTTP запросы (если есть metrics endpoint)
+rate(http_requests_total{namespace="microservices"}[5m])
+
+# Latency p95
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+#### Доступ к AlertManager
+
+```bash
+# Port forward
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093
+
+# Открыть: http://localhost:9093
+```
+
+#### Metrics от микросервисов
+
+Все сервисы экспортируют метрики на `/metrics`:
+
+```bash
+# Посмотреть метрики user-service
+kubectl port-forward -n microservices svc/user-service 5000:5000
+curl http://localhost:5000/metrics
+
+# Пример метрик:
+# flask_http_request_total{method="GET",status="200"} 42
+# flask_http_request_duration_seconds_count 42
+# flask_http_request_duration_seconds_sum 1.23
+```
+
+#### Создание ServiceMonitor для автообнаружения
+
+```bash
+# Применить ServiceMonitor для user-service
+kubectl apply -f - <<EOF
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: user-service-monitor
+  namespace: microservices
+  labels:
+    app: user-service
+spec:
+  selector:
+    matchLabels:
+      app: user-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+EOF
+
+# Проверить что Prometheus подхватил таргеты
+# http://localhost:9090/targets
+```
+
+> 📖 **Детальное руководство:** [docs/LOCAL_MONITORING.md](docs/LOCAL_MONITORING.md)
+> 
+> Включает:
+> - Установку и настройку Prometheus + Grafana + AlertManager
+> - Готовые PromQL запросы для мониторинга
+> - Создание кастомных дашбордов и алертов
+> - RED method (Rate, Errors, Duration) метрики
+> - ServiceMonitor для автообнаружения
+> - Troubleshooting и best practices
+
+**Остановка:**
+
+```bash
+# Удалить все ресурсы
+kubectl delete namespace microservices
+
+# Остановить minikube
+minikube stop
+
+# Полностью удалить minikube
+minikube delete
+```
+
+---
+
+## 🔄 CI/CD Workflow
+
+### Автоматическая сборка и деплой
+
+Проект настроен на **полностью автоматический CI/CD**. При каждом `git push` GitHub Actions автоматически:
+
+1. ✅ Определяет какие сервисы изменились
+2. 🔨 Собирает только измененные Docker образы
+3. 🐳 Пушит образы в DockerHub
+4. 📊 Показывает отчет о сборке
+
+### Настройка GitHub Secrets
+
+**Первый раз (один раз):**
+
+```bash
+# 1. Зайти в GitHub → Settings → Secrets and variables → Actions
+# 2. Добавить 2 секрета:
+
+DOCKER_USERNAME = denol007
+DOCKER_PASSWORD = <ваш-dockerhub-token>
+```
+
+💡 **Как создать DockerHub token:**
+1. Зайти на https://hub.docker.com
+2. Settings → Security → New Access Token
+3. Скопировать токен и добавить в GitHub Secrets
+
+### Workflow разработки
+
+#### Вариант 1: Автоматический (рекомендуемый)
+
+```bash
+# 1. Сделать изменения в коде
+vim services/user-service/app.py
+
+# 2. Закоммитить и запушить
+git add .
+git commit -m "feat: add new endpoint"
+git push origin main
+
+# 3. GitHub Actions автоматически:
+#    ✅ Соберет образ user-service
+#    ✅ Запушит в denol007/user-service:latest
+#    ✅ Покажет статус в Actions
+
+# 4. Обновить локальный Minikube из DockerHub:
+./scripts/update-from-dockerhub.sh user
+
+# Готово! Новая версия работает в Minikube
+```
+
+#### Вариант 2: Локальная разработка без push
+
+```bash
+# 1. Собрать локально в Minikube
+eval $(minikube docker-env)
+docker build -t denol007/user-service:latest services/user-service/
+
+# 2. Перезапустить deployment
+kubectl rollout restart deployment/user-service -n microservices
+
+# 3. Проверить
+kubectl get pods -n microservices -w
+```
+
+### Обновление из DockerHub
+
+После успешной сборки в CI/CD обновите локальный Minikube:
+
+```bash
+# Обновить все сервисы
+./scripts/update-from-dockerhub.sh
+
+# Обновить только user-service
+./scripts/update-from-dockerhub.sh user
+
+# Обновить несколько сервисов
+./scripts/update-from-dockerhub.sh user product order
+```
+
+### Мониторинг CI/CD
+
+**Смотреть статус сборки:**
+```bash
+# Открыть в браузере
+open https://github.com/Denol007/k8s/actions
+
+# Или через gh CLI
+gh run list
+gh run view <run-id>
+```
+
+**GitHub Actions показывает:**
+- ✅ Какие сервисы изменились
+- 🔨 Статус сборки каждого образа
+- 🐳 Ссылки на образы в DockerHub
+- ⏱️ Время сборки
+- 📊 Итоговый отчет
+
+### Troubleshooting CI/CD
+
+**Проблема: "Error: buildx failed"**
+```bash
+# Проверить, что Docker Hub credentials настроены
+gh secret list
+
+# Должны быть: DOCKER_USERNAME, DOCKER_PASSWORD
+```
+
+**Проблема: "No changes detected"**
+```bash
+# Убедиться что изменения в services/
+git diff HEAD~1 HEAD | grep "services/"
+```
+
+**Проблема: "Pull failed in Minikube"**
+```bash
+# Образ приватный или не запушен
+# 1. Проверить на DockerHub:
+open https://hub.docker.com/u/denol007
+
+# 2. Убедиться что сборка в Actions завершилась успешно
+gh run view
+```
+
 **Остановка:**
 
 ```bash
@@ -322,6 +598,8 @@ make test              # Запустить тесты
 - ✅ Service-level metrics (RED method)
 - ✅ Business KPIs tracking
 - ✅ Custom alerts (high error rate, latency, etc.)
+
+> 🔍 **Как использовать локально:** [docs/LOCAL_MONITORING.md](docs/LOCAL_MONITORING.md)
 
 ### 📝 Logging
 - ✅ Centralized logging (ELK Stack)
@@ -576,3 +854,33 @@ This project is licensed under the MIT License.
 ⭐ **Star this repo if you find it useful!**
 
 Made with ❤️ 
+
+---
+
+## 🎯 Быстрая шпаргалка
+
+### Локальное развертывание
+```bash
+./scripts/deploy-local.sh          # Всё в одной команде
+kubectl get pods -n microservices  # Проверить статус
+```
+
+### Мониторинг
+```bash
+make install-monitoring            # Установить Prometheus + Grafana
+make port-forward-grafana          # Доступ к Grafana (localhost:3000)
+make port-forward-prometheus       # Доступ к Prometheus (localhost:9090)
+make monitoring-status             # Статус мониторинга
+```
+
+**Подробнее:** [docs/LOCAL_MONITORING.md](docs/LOCAL_MONITORING.md)
+
+### Полезные команды
+```bash
+make help                          # Все доступные команды
+make status                        # Статус всех ресурсов
+make logs                          # Логи всех сервисов
+make metrics                       # Показать метрики
+make restart-services              # Перезапустить сервисы
+```
+

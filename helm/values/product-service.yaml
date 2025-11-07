@@ -1,0 +1,23 @@
+# Helm values for product-service
+
+image:
+  repository: denol007/product-service
+  tag: latest
+
+service:
+  port: 5001
+
+env:
+  PORT: "5001"
+  SERVICE_NAME: "product-service"
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/microservices"
+
+fullnameOverride: "product-service"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

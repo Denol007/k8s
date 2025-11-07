@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from prometheus_flask_exporter import PrometheusMetrics
+from datetime import datetime
 import os
 import logging
 
@@ -22,12 +23,13 @@ logger.info(f"Starting {SERVICE_NAME} on port {PORT} in {ENVIRONMENT} mode")
 
 @app.route('/health')
 def health():
-    """Health check endpoint"""
+    """Health check endpoint for liveness probe"""
     return jsonify({
-        "service": SERVICE_NAME,
-        "status": "healthy",
-        "environment": ENVIRONMENT
-    }), 200
+        'service': 'notification-service',
+        'status': 'healthy',
+        'version': '1.0.1',  # Updated version
+        'timestamp': datetime.utcnow().isoformat()
+    })
 
 @app.route('/ready')
 def ready():
@@ -120,3 +122,4 @@ if __name__ == '__main__':
         port=PORT,
         debug=(ENVIRONMENT == 'development')
     )
+

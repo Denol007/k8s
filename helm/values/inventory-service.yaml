@@ -3,7 +3,7 @@
 
 image:
   repository: Denol007/inventory-service
-  tag: latest
+  tag: 3a5cf4f5f43d27dbdc6d751823272e84924814ac
 
 service:
   port: 5007

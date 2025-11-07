@@ -165,22 +165,21 @@ jobs:
             ${{ steps.config.outputs.port }} \
             ${{ steps.config.outputs.replicas }}
       
-      - name: Validate manifests with kubectl
+      - name: Validate manifests with kubeconform
         run: |
           echo "✅ Validating manifests..."
           
-          # Установить kubectl если его нет
-          if ! command -v kubectl &> /dev/null; then
-            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-            chmod +x kubectl
-            sudo mv kubectl /usr/local/bin/
-          fi
+          # Установить kubeconform (offline validator)
+          curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
           
-          # Dry-run для проверки синтаксиса
-          kubectl apply --dry-run=client -f k8s/deployments/${{ matrix.service }}-deployment.yaml
-          kubectl apply --dry-run=client -f k8s/services/${{ matrix.service }}-service.yaml
-          kubectl apply --dry-run=client -f k8s/hpa/${{ matrix.service }}-hpa.yaml
-          kubectl apply --dry-run=client -f k8s/rbac/${{ matrix.service }}-rbac.yaml
+          # Валидация манифестов (без подключения к кластеру)
+          kubeconform -summary -output json \
+            k8s/deployments/${{ matrix.service }}-deployment.yaml \
+            k8s/services/${{ matrix.service }}-service.yaml \
+            k8s/hpa/${{ matrix.service }}-hpa.yaml \
+            k8s/rbac/${{ matrix.service }}-rbac.yaml \
+            k8s/monitoring/${{ matrix.service }}-servicemonitor.yaml
           
           echo "✅ All manifests are valid!"
       

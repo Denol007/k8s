@@ -1,0 +1,59 @@
+# Elasticsearch configuration
+# Install with:
+# helm repo add elastic https://helm.elastic.co
+# helm install elasticsearch elastic/elasticsearch -f elasticsearch-values.yaml -n logging
+
+replicas: 3
+minimumMasterNodes: 2
+
+clusterName: "microservices-logs"
+nodeGroup: "master"
+
+roles:
+  master: "true"
+  ingest: "true"
+  data: "true"
+  remote_cluster_client: "true"
+  ml: "false"
+
+resources:
+  requests:
+    cpu: "1000m"
+    memory: "2Gi"
+  limits:
+    cpu: "2000m"
+    memory: "4Gi"
+
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: "gp3"
+  resources:
+    requests:
+      storage: 100Gi
+
+esJavaOpts: "-Xmx2g -Xms2g"
+
+esConfig:
+  elasticsearch.yml: |
+    cluster.name: microservices-logs
+    network.host: 0.0.0.0
+    
+    xpack.security.enabled: false
+    xpack.monitoring.enabled: true
+    
+    # Index lifecycle management
+    xpack.ilm.enabled: true
+
+persistence:
+  enabled: true
+
+antiAffinity: "soft"
+
+# Enable Prometheus metrics
+prometheus:
+  enabled: true
+
+service:
+  type: ClusterIP
+  httpPort: 9200
+  transportPort: 9300

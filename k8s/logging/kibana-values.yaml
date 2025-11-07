@@ -1,0 +1,47 @@
+# Kibana configuration
+# Install with:
+# helm install kibana elastic/kibana -f kibana-values.yaml -n logging
+
+replicas: 2
+
+elasticsearchHosts: "http://elasticsearch-master:9200"
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: kibana.microservices.example.com
+      paths:
+        - path: /
+  tls:
+    - secretName: kibana-tls
+      hosts:
+        - kibana.microservices.example.com
+
+kibanaConfig:
+  kibana.yml: |
+    server.name: kibana
+    server.host: "0.0.0.0"
+    elasticsearch.hosts: ["http://elasticsearch-master:9200"]
+    
+    # Default index pattern
+    kibana.defaultAppId: "discover"
+    
+    # Monitoring
+    monitoring.ui.enabled: true
+
+service:
+  type: ClusterIP
+  port: 5601
+
+healthCheckPath: "/api/status"

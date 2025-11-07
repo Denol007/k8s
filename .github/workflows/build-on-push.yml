@@ -1,12 +1,9 @@
 name: 📦 Build and Push on Push
 
-# Этот workflow запускается при каждом push в любую ветку
-# Он просто собирает и пушит образы в DockerHub
-
 on:
   push:
     branches:
-      - '**'  # Любая ветка
+      - '**'
     paths:
       - 'services/**'
 
@@ -14,15 +11,16 @@ env:
   DOCKER_USERNAME: denol007
 
 jobs:
-  build-and-push:
-    name: 🚀 Build & Push Changed Services
+  detect-changes:
+    name: 🔍 Detect Changed Services
     runs-on: ubuntu-latest
-    
+    outputs:
+      services: ${{ steps.changes.outputs.services }}
+      has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Нужно для сравнения с предыдущим коммитом
+          fetch-depth: 2
       
       - name: Detect changed services
         id: changes
@@ -32,32 +30,40 @@ jobs:
           
           echo "Changed files:"
           echo "$CHANGED_FILES"
+          echo ""
           
-          USER_CHANGED=false
-          PRODUCT_CHANGED=false
-          ORDER_CHANGED=false
-          PAYMENT_CHANGED=false
+          # Динамически найти все измененные сервисы
+          CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep "^services/" | cut -d'/' -f2 | sort -u)
           
-          if echo "$CHANGED_FILES" | grep -q "services/user-service/"; then
-            USER_CHANGED=true
+          echo "🔍 Detected changed services:"
+          if [ -z "$CHANGED_SERVICES" ]; then
+            echo "  No service changes detected"
+            echo "services=[]" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "$CHANGED_SERVICES" | while read service; do
+              echo "  ✅ $service"
+            done
+            
+            # Преобразовать в JSON array
+            JSON_ARRAY=$(echo "$CHANGED_SERVICES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "services=$JSON_ARRAY" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo ""
+            echo "📦 Services to build: $JSON_ARRAY"
           fi
-          
-          if echo "$CHANGED_FILES" | grep -q "services/product-service/"; then
-            PRODUCT_CHANGED=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -q "services/order-service/"; then
-            ORDER_CHANGED=true
-          fi
-          
-          if echo "$CHANGED_FILES" | grep -q "services/payment-service/"; then
-            PAYMENT_CHANGED=true
-          fi
-          
-          echo "user_changed=$USER_CHANGED" >> $GITHUB_OUTPUT
-          echo "product_changed=$PRODUCT_CHANGED" >> $GITHUB_OUTPUT
-          echo "order_changed=$ORDER_CHANGED" >> $GITHUB_OUTPUT
-          echo "payment_changed=$PAYMENT_CHANGED" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    name: 🔨 Build ${{ matrix.service }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -68,119 +74,63 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       
-      # ============================================
-      # USER SERVICE
-      # ============================================
-      - name: 🔨 Build User Service
-        if: steps.changes.outputs.user_changed == 'true'
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: services/user-service
+          context: services/${{ matrix.service }}
           push: true
           tags: |
-            ${{ env.DOCKER_USERNAME }}/user-service:latest
-            ${{ env.DOCKER_USERNAME }}/user-service:${{ github.sha }}
+            ${{ env.DOCKER_USERNAME }}/${{ matrix.service }}:latest
+            ${{ env.DOCKER_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: ✅ User Service Built
-        if: steps.changes.outputs.user_changed == 'true'
+      - name: Success
         run: |
-          echo "✅ user-service:latest pushed to DockerHub"
-          echo "Image: ${{ env.DOCKER_USERNAME }}/user-service:latest"
+          echo "✅ ${{ matrix.service }}:latest pushed to DockerHub"
+          echo "Image: ${{ env.DOCKER_USERNAME }}/${{ matrix.service }}:latest"
       
-      # ============================================
-      # PRODUCT SERVICE
-      # ============================================
-      - name: 🔨 Build Product Service
-        if: steps.changes.outputs.product_changed == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: services/product-service
-          push: true
-          tags: |
-            ${{ env.DOCKER_USERNAME }}/product-service:latest
-            ${{ env.DOCKER_USERNAME }}/product-service:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: ✅ Product Service Built
-        if: steps.changes.outputs.product_changed == 'true'
+      - name: Create summary
         run: |
-          echo "✅ product-service:latest pushed to DockerHub"
-      
-      # ============================================
-      # ORDER SERVICE
-      # ============================================
-      - name: 🔨 Build Order Service
-        if: steps.changes.outputs.order_changed == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: services/order-service
-          push: true
-          tags: |
-            ${{ env.DOCKER_USERNAME }}/order-service:latest
-            ${{ env.DOCKER_USERNAME }}/order-service:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: ✅ Order Service Built
-        if: steps.changes.outputs.order_changed == 'true'
-        run: |
-          echo "✅ order-service:latest pushed to DockerHub"
-      
-      # ============================================
-      # PAYMENT SERVICE
-      # ============================================
-      - name: 🔨 Build Payment Service
-        if: steps.changes.outputs.payment_changed == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: services/payment-service
-          push: true
-          tags: |
-            ${{ env.DOCKER_USERNAME }}/payment-service:latest
-            ${{ env.DOCKER_USERNAME }}/payment-service:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: ✅ Payment Service Built
-        if: steps.changes.outputs.payment_changed == 'true'
-        run: |
-          echo "✅ payment-service:latest pushed to DockerHub"
-      
-      # ============================================
-      # SUMMARY
-      # ============================================
-      - name: 📊 Deployment Summary
+          echo "## ✅ ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DOCKER_USERNAME }}/${{ matrix.service }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Update locally:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "./scripts/update-from-dockerhub.sh ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  summary:
+    name: 📊 Summary
+    needs: [detect-changes, build-and-push]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create summary
         run: |
           echo "# 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Services Built & Pushed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ "${{ steps.changes.outputs.user_changed }}" == "true" ]; then
-            echo "✅ **user-service** → \`${{ env.DOCKER_USERNAME }}/user-service:latest\`" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ "${{ steps.changes.outputs.product_changed }}" == "true" ]; then
-            echo "✅ **product-service** → \`${{ env.DOCKER_USERNAME }}/product-service:latest\`" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ "${{ steps.changes.outputs.order_changed }}" == "true" ]; then
-            echo "✅ **order-service** → \`${{ env.DOCKER_USERNAME }}/order-service:latest\`" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ "${{ steps.changes.outputs.payment_changed }}" == "true" ]; then
-            echo "✅ **payment-service** → \`${{ env.DOCKER_USERNAME }}/payment-service:latest\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.detect-changes.outputs.has_changes }}" == "true" ]; then
+            echo "## ✅ Build Complete" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Services built:** ${{ needs.detect-changes.outputs.services }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Status:** ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ℹ️ No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No service changes detected." >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Образы готовы в DockerHub! Теперь можно:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Локально: \`kubectl set image deployment/user-service user-service=${{ env.DOCKER_USERNAME }}/user-service:latest -n microservices\`" >> $GITHUB_STEP_SUMMARY
-          echo "2. Или перезапустить: \`kubectl rollout restart deployment/user-service -n microservices\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "👤 Author: @${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Author:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,112 @@
+# Default values for microservice chart
+# This is a YAML-formatted file.
+
+# Namespace для деплоя
+namespace: microservices
+
+# Имя сервиса (переопределяется через --set)
+nameOverride: ""
+fullnameOverride: ""
+
+# Количество реплик
+replicaCount: 2
+
+# Настройки образа
+image:
+  repository: denol007/microservice  # Переопределяется для каждого сервиса
+  pullPolicy: Always
+  tag: "latest"  # Переопределяется через --set
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Security Context для пода
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Security Context для контейнера
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+
+# Service настройки
+service:
+  type: ClusterIP
+  port: 5000  # Переопределяется для каждого сервиса
+
+# Liveness Probe
+livenessProbe:
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness Probe
+readinessProbe:
+  path: /ready
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Ресурсы
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Monitoring с Prometheus
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+
+# ConfigMap (опционально)
+configMap:
+  enabled: false
+  data: {}
+
+# Environment variables
+env: {}
+  # Пример:
+  # PORT: "5000"
+  # LOG_LEVEL: "info"
+
+# Environment from ConfigMap
+envFrom: []
+  # Пример:
+  # - my-config
+
+# Volumes (опционально)
+volumes: []
+volumeMounts: []
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}

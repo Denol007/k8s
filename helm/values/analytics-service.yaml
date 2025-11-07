@@ -1,0 +1,12 @@
+image:
+  repository: denol007/analytics-service
+  tag: latest
+
+service:
+  port: 5005
+
+env:
+  PORT: "5005"
+  SERVICE_NAME: "analytics-service"
+
+fullnameOverride: "analytics-service"

@@ -33,10 +33,9 @@ inventory = {
 def health():
     """Health check endpoint"""
     return jsonify({
-        'service': SERVICE_NAME,
-        'status': 'healthy',
-        'version': VERSION,
-        'timestamp': datetime.utcnow().isoformat()
+        "status": "healthy", 
+        "service": "inventory-service",
+        "version": "1.0.0"
     }), 200
 
 

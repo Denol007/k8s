@@ -1,5 +1,196 @@
 # Runbook - Operational Guide
 
+## 🚀 Локальное развёртывание (Minikube)
+
+### Быстрый локальный деплой
+
+Для тестирования в Minikube используйте готовый скрипт:
+
+```bash
+# Запустите скрипт автоматического деплоя
+./scripts/deploy-local.sh
+```
+
+Скрипт автоматически:
+- ✅ Настроит Docker для использования minikube daemon
+- ✅ Соберёт образы внутри minikube
+- ✅ Создаст namespaces и RBAC
+- ✅ Задеплоит все сервисы с правильным `imagePullPolicy: Never`
+- ✅ Включит metrics-server и ingress addons
+
+### Проблемы при локальном деплое
+
+#### ImagePullBackOff с образами `denol007/*`
+
+**Симптомы:**
+```bash
+$ kubectl get pods -n microservices
+NAME                            READY   STATUS             RESTARTS   AGE
+user-service-xxx                0/1     ImagePullBackOff   0          1m
+```
+
+**Причина:** Minikube работает в отдельном Docker окружении и не видит локально собранные образы.
+
+**Решение 1 - Использовать скрипт (рекомендуется):**
+```bash
+./scripts/deploy-local.sh
+```
+
+**Решение 2 - Собрать образы в minikube вручную:**
+```bash
+# Переключиться на Docker daemon minikube
+eval $(minikube docker-env)
+
+# Собрать образы
+docker build -t denol007/user-service:latest services/user-service
+docker build -t denol007/product-service:latest services/product-service
+docker build -t denol007/order-service:latest services/order-service
+docker build -t denol007/payment-service:latest services/payment-service
+
+# Изменить imagePullPolicy в манифестах на Never или IfNotPresent
+sed -i 's/imagePullPolicy: Always/imagePullPolicy: Never/g' k8s/base/*.yaml
+
+# Применить изменения
+kubectl apply -f k8s/base/
+```
+
+#### Pods Running но не Ready (0/1)
+
+**Симптомы:**
+```bash
+$ kubectl get pods -n microservices
+NAME                            READY   STATUS    RESTARTS   AGE
+user-service-xxx                0/1     Running   0          2m
+```
+
+**Причина:** Readiness probe не проходит. Обычно проблемы с подключением к БД.
+
+**Диагностика:**
+```bash
+# Проверить логи
+kubectl logs user-service-xxx -n microservices --tail=50
+
+# Типичная ошибка:
+# ERROR:app:Readiness check failed: (psycopg2.OperationalError) 
+# could not translate host name "rds-endpoint" to address
+```
+
+**Решение - Запустить PostgreSQL в minikube:**
+```bash
+# Создать PostgreSQL deployment для локального тестирования
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: microservices
+spec:
+  ports:
+  - port: 5432
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: microservices
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_USER
+          value: dbuser
+        - name: POSTGRES_PASSWORD
+          value: dbpass
+        - name: POSTGRES_MULTIPLE_DATABASES
+          value: "userdb,productdb,orderdb,paymentdb"
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: init-script
+        configMap:
+          name: postgres-init
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: microservices
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+    for db in userdb productdb orderdb paymentdb; do
+      echo "Creating database: \$db"
+      psql -v ON_ERROR_STOP=1 --username "\$POSTGRES_USER" <<-EOSQL
+        CREATE DATABASE \$db;
+        GRANT ALL PRIVILEGES ON DATABASE \$db TO \$POSTGRES_USER;
+    EOSQL
+    done
+EOF
+
+# Обновить DATABASE_URL в secrets
+kubectl patch secret user-service-secrets -n microservices -p '{"stringData":{"DATABASE_URL":"postgresql://dbuser:dbpass@postgres:5432/userdb"}}'
+
+# Перезапустить deployments
+kubectl rollout restart deployment/user-service -n microservices
+```
+
+**Или использовать SQLite для локального dev:**
+
+Создайте локальные манифесты с SQLite:
+```bash
+# В k8s/local/user-service.yaml измените DATABASE_URL на:
+DATABASE_URL: "sqlite:////tmp/userdb.db"
+```
+
+#### ServiceAccount not found
+
+**Симптомы:**
+```bash
+Error creating: pods "user-service-xxx-" is forbidden: 
+error looking up service account microservices/user-service-sa: 
+serviceaccount "user-service-sa" not found
+```
+
+**Решение:**
+```bash
+# Применить RBAC конфигурацию
+kubectl apply -f k8s/rbac/
+```
+
+#### HPA cannot get metrics
+
+**Симптомы:**
+```bash
+$ kubectl get hpa -n microservices
+NAME               REFERENCE                 TARGETS         MINPODS   MAXPODS
+user-service-hpa   Deployment/user-service   <unknown>/70%   2         10
+```
+
+**Решение:**
+```bash
+# Включить metrics-server addon
+minikube addons enable metrics-server
+
+# Подождать пару минут и проверить
+kubectl top nodes
+kubectl top pods -n microservices
+```
+
 ## Быстрый старт
 
 ### Проверка статуса системы

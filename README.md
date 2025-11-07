@@ -136,34 +136,97 @@
 
 ### Предварительные требования
 
-| Инструмент | Версия | Проверка |
-|-----------|--------|----------|
-| AWS CLI | >= 2.0 | `aws --version` |
-| Terraform | >= 1.5 | `terraform version` |
-| kubectl | >= 1.27 | `kubectl version --client` |
-| Docker | >= 24.0 | `docker --version` |
-| Helm | >= 3.0 | `helm version` |
+| Для локального тестирования | Для production |
+|------------------------------|----------------|
+| ✅ Docker >= 24.0 | ✅ AWS CLI >= 2.0 |
+| ✅ Minikube >= 1.30 | ✅ Terraform >= 1.5 |
+| ✅ kubectl >= 1.27 | ✅ kubectl >= 1.27 |
+| | ✅ Helm >= 3.0 |
 
-### Установка за 5 минут (локально для теста)
+### 🎯 Локальное тестирование (рекомендуется для начала)
+
+**Всё запускается одним скриптом!** 🚀
 
 ```bash
 # 1. Клонирование репозитория
 git clone https://github.com/Denol007/k8s.git
 cd k8s
 
-# 2. Сборка Docker образов
-make build
-
-# 3. Запуск локально (minikube)
-minikube start --cpus=4 --memory=8192
-kubectl apply -f k8s/base/namespaces.yaml
-kubectl apply -f k8s/base/
-
-# 4. Проверка
-kubectl get pods -n microservices
+# 2. Запустить автоматический деплой в Minikube
+./scripts/deploy-local.sh
 ```
 
-### Production развертывание (AWS)
+**Что делает скрипт `deploy-local.sh`:**
+
+1. **Проверяет Minikube** - Запускает если не работает
+2. **Настраивает Docker** - Использует Docker daemon внутри Minikube (`eval $(minikube docker-env)`)
+3. **Собирает образы** - Билдит все 4 микросервиса локально
+4. **Создаёт манифесты** - Генерирует локальные версии с `imagePullPolicy: Never`
+5. **Разворачивает инфраструктуру:**
+   - 📦 Namespaces (microservices, monitoring, logging)
+   - 🔐 RBAC (ServiceAccounts, Roles, RoleBindings)
+   - 🐘 **PostgreSQL** с 4 базами данных (userdb, productdb, orderdb, paymentdb)
+   - 🚀 Все микросервисы с правильными настройками
+   - 🌐 Ingress Controller
+   - 📊 Metrics Server для HPA
+6. **Показывает статус** - Выводит информацию о подах и сервисах
+
+> **💡 Важно:** Скрипт автоматически решает все типичные проблемы локального развёртывания:
+> - ❌ ImagePullBackOff → ✅ Образы собираются в Minikube
+> - ❌ Database connection failed → ✅ PostgreSQL разворачивается автоматически
+> - ❌ ServiceAccount not found → ✅ RBAC создаётся перед сервисами
+> - ❌ HPA unknown metrics → ✅ Metrics Server включается
+
+**Проверка работы:**
+
+```bash
+# Посмотреть статус всех подов
+kubectl get pods -n microservices
+
+# Ожидаемый результат:
+# NAME                            READY   STATUS    RESTARTS   AGE
+# postgres-xxx                    1/1     Running   0          1m
+# user-service-xxx                1/1     Running   0          1m
+
+# Проверить health check
+kubectl run test-pod --rm -it --image=alpine --restart=Never -n microservices -- \
+  sh -c "apk add --no-cache curl && curl http://user-service:5000/health"
+
+# Ответ должен быть:
+# {"service":"user-service","status":"healthy"}
+
+# Логи сервиса
+kubectl logs -f deployment/user-service -n microservices
+
+# Все команды в одном месте
+make status
+```
+
+**Доступ к сервисам:**
+
+```bash
+# Port forwarding для тестирования
+kubectl port-forward svc/user-service 5000:5000 -n microservices
+
+# В другом терминале:
+curl http://localhost:5000/health
+curl http://localhost:5000/ready
+```
+
+**Остановка:**
+
+```bash
+# Удалить все ресурсы
+kubectl delete namespace microservices
+
+# Остановить minikube
+minikube stop
+
+# Полностью удалить minikube
+minikube delete
+```
+
+### 🏢 Production развертывание (AWS)
 
 **Полная инструкция:** [docs/deployment.md](docs/deployment.md)
 
@@ -193,10 +256,46 @@ make install-logging
 make status
 ```
 
-### Быстрые команды (Makefile)
+### 📝 Быстрые команды (Makefile)
 
 ```bash
 make help              # Список всех команд
+make build             # Собрать Docker images
+make push              # Push в registry
+make deploy-k8s        # Deploy в Kubernetes
+make status            # Статус всех ресурсов
+make logs              # Логи всех сервисов
+make test              # Запустить тесты
+make clean             # Очистка
+```
+
+### 🔧 Troubleshooting
+
+**Проблема: Pods в статусе `ImagePullBackOff`**
+```bash
+# Решение: Используйте скрипт deploy-local.sh
+# Он автоматически собирает образы в Docker daemon minikube
+./scripts/deploy-local.sh
+```
+
+**Проблема: Pods `Running` но не `Ready` (0/1)**
+```bash
+# Проверить логи
+kubectl logs deployment/user-service -n microservices --tail=50
+
+# Обычно это проблема с БД - скрипт deploy-local.sh автоматически
+# разворачивает PostgreSQL
+```
+
+**Проблема: HPA показывает `<unknown>`**
+```bash
+# Включить metrics-server (делается автоматически в deploy-local.sh)
+minikube addons enable metrics-server
+```
+
+**Больше информации:**
+- 📖 [docs/runbook.md](docs/runbook.md) - Детальный troubleshooting
+- 📖 [FIXED_ISSUES.md](FIXED_ISSUES.md) - Решённые проблемы
 make build             # Собрать Docker images
 make deploy-k8s        # Deploy в Kubernetes
 make status            # Статус всех ресурсов

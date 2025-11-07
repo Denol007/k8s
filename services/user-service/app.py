@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
@@ -41,7 +42,7 @@ def health():
 @app.route('/ready', methods=['GET'])
 def ready():
     try:
-        db.session.execute('SELECT 1')
+        db.session.execute(text('SELECT 1'))
         return jsonify({'status': 'ready'}), 200
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")

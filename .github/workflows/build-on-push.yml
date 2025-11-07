@@ -129,13 +129,16 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
+          # Подтягиваем изменения (может быть автокоммит от helm-values-gen)
+          git pull --rebase origin ${{ github.ref_name }} || true
+          
           git add helm/values/${SERVICE}.yaml
           
           if git diff --staged --quiet; then
             echo "✅ No changes to commit"
           else
             git commit -m "chore: update ${SERVICE} image tag to ${IMAGE_TAG} [skip ci]"
-            git push
+            git push origin ${{ github.ref_name }}
             echo "✅ Pushed updated values for ${SERVICE}"
             echo "🤖 Argo CD will automatically deploy this change!"
           fi

@@ -1,0 +1,23 @@
+# Helm values for payment-service
+
+image:
+  repository: denol007/payment-service
+  tag: latest
+
+service:
+  port: 5003
+
+env:
+  PORT: "5003"
+  SERVICE_NAME: "payment-service"
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/microservices"
+
+fullnameOverride: "payment-service"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

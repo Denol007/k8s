@@ -1,0 +1,23 @@
+# Helm values for order-service
+
+image:
+  repository: denol007/order-service
+  tag: latest
+
+service:
+  port: 5002
+
+env:
+  PORT: "5002"
+  SERVICE_NAME: "order-service"
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/microservices"
+
+fullnameOverride: "order-service"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

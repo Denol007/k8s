@@ -69,12 +69,20 @@ jobs:
               continue
             fi
             
-            # Проверить есть ли deployment для этого сервиса
-            if [ ! -f "k8s/deployments/${service_name}-deployment.yaml" ]; then
+            # Проверить есть ли deployment для этого сервиса в любой из директорий
+            HAS_MANIFEST=false
+            
+            if [ -f "k8s/deployments/${service_name}-deployment.yaml" ] || \
+               [ -f "k8s/base/${service_name}.yaml" ] || \
+               [ -f "k8s/local/${service_name}.yaml" ]; then
+              HAS_MANIFEST=true
+              echo "✅ Service $service_name already has manifests"
+            fi
+            
+            # Добавить в список только если манифеста НЕТ
+            if [ "$HAS_MANIFEST" = "false" ]; then
               echo "🆕 Found new service without manifests: $service_name"
               NEW_SERVICES="${NEW_SERVICES}\"${service_name}\","
-            else
-              echo "✅ Service $service_name already has manifests"
             fi
           done
           

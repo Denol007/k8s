@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: microservices
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  # Источник - наш Git репозиторий
+  source:
+    repoURL: https://github.com/Denol007/k8s.git
+    targetRevision: HEAD
+    path: argocd/manifests
+    
+  # Куда деплоить
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: microservices
+  
+  # Автоматическая синхронизация
+  syncPolicy:
+    automated:
+      prune: true      # Удалять ресурсы, которых нет в Git
+      selfHeal: true   # Автоматически восстанавливать изменения
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

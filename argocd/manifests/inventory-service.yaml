@@ -10,11 +10,11 @@ spec:
   
   source:
     repoURL: https://github.com/Denol007/k8s.git
-    targetRevision: feature/inventory-service
+    targetRevision: HEAD
     path: helm/microservice
     helm:
       valueFiles:
-        - ../values/inventory-service.yaml
+        - ../../helm/values/inventory-service.yaml
   
   destination:
     server: https://kubernetes.default.svc
